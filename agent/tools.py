@@ -67,5 +67,32 @@ def check_current_date() -> str:
 
 
 if __name__ == "__main__":
-    print(get_user_purchase_history.invoke({"user": "user123"}))
-    print(check_current_date.invoke({}))
+    # 1. Single item refund → expect 23
+    print(calculate_right_refund.invoke({
+        "user": "user123",
+        "items": [{"name": "book"}]
+    }))
+
+    # 2. Multiple items → expect 23 + 7 = 30
+    print(calculate_right_refund.invoke({
+        "user": "user123",
+        "items": [{"name": "book"}, {"name": "pen"}]
+    }))
+
+    # 3. Item never purchased → expect 0 + items_not_purchased: ["laptop"]
+    print(calculate_right_refund.invoke({
+        "user": "user123",
+        "items": [{"name": "laptop"}]
+    }))
+
+    # 4. Mixed: one real, one fake → expect 45 + items_not_purchased: ["laptop"]
+    print(calculate_right_refund.invoke({
+        "user": "user126",
+        "items": [{"name": "backpack"}, {"name": "laptop"}]
+    }))
+
+    # 5. Unknown user → expect error
+    print(calculate_right_refund.invoke({
+        "user": "user999",
+        "items": [{"name": "book"}]
+    }))

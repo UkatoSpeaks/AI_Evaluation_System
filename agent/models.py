@@ -5,6 +5,6 @@ load_dotenv()
 
 model = init_chat_model(model="openai/gpt-oss-120b", model_provider="groq")
 
-response = model.invoke("tell me about the sun in two sentences")
+#response = model.invoke("tell me about the sun in two sentences")
 
-print(response.content)
+#print(response.content)

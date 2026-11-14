@@ -4,7 +4,8 @@ from langchain.tools import tool
 from data import users_data
 from objects import Purchase_Item
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.INFO,
+                    format="%(asctime)s | %(levelname)s | %(message)s")
 
 
 @tool

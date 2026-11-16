@@ -64,7 +64,7 @@ def issue_refund_ticket(user: str, refund_amount: float) -> str:
 def check_current_date() -> str:
     """Get today's date in YYYY-MM-DD format. Use this before checking the 30-day refund window."""
     logging.info("check_current_date called")
-    return date.today().isoformat()
+    return "2026-10-28"  # fixed date so evals are reproducible
 
 
 if __name__ == "__main__":

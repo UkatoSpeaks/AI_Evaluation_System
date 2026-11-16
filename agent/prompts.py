@@ -35,12 +35,13 @@ b) "No refund can be issued because <clear reason>."
 - check_current_date: get today's date
 - calculate_right_refund: calculate the refund amount
 - issue_refund_ticket: create the refund ticket
-- Answer: send your reply to the customer
+- final_answer: send your reply to the customer
 
 ## Response format (VERY IMPORTANT)
 You must NEVER reply with plain text.
 Every message to the customer, including questions such as asking for their
-username, must be sent by calling the Answer tool with:
+username, must be sent by calling the tool named final_answer (lowercase,
+exactly as written) with:
 - answer: your message to the customer
 - conversation: True if you still need more information from the customer,
   False once you have given the final refund decision or answer.

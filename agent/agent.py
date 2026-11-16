@@ -10,7 +10,7 @@ from langchain.messages import HumanMessage
 from langgraph.checkpoint.memory import InMemorySaver
 
 from models import model
-from objects import Answer
+from objects import final_answer
 from prompts import agent_system_prompt
 from tools import (
     calculate_right_refund,
@@ -23,7 +23,7 @@ agent = create_agent(
     model=model,
     system_prompt=agent_system_prompt,
     tools=[get_user_purchase_history, check_current_date, calculate_right_refund, issue_refund_ticket],
-    response_format=ToolStrategy(Answer),
+    response_format=ToolStrategy(final_answer),
     checkpointer=InMemorySaver(),
 )
 

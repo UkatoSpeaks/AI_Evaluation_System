@@ -1,7 +1,7 @@
 from pydantic import BaseModel, Field
 
 
-class Answer(BaseModel):
+class final_answer(BaseModel):
     answer: str = Field(description="The answer to the user's question")
     conversation: bool = Field(
         default=True,
@@ -14,4 +14,4 @@ class Answer(BaseModel):
 
 
 class Purchase_Item(BaseModel):
-    name:str =Field(description="name of the item purchased")
+    name: str = Field(description="name of the item purchased")

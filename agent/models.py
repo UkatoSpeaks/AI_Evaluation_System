@@ -3,8 +3,8 @@ from langchain.chat_models import init_chat_model
 
 load_dotenv()
 
-model = init_chat_model(model="openai/gpt-oss-120b", model_provider="groq")
-
-#response = model.invoke("tell me about the sun in two sentences")
-
-#print(response.content)
+model = init_chat_model(
+    model="qwen/qwen3.8-27b",   # ← change here
+    model_provider="groq",
+    temperature=0,
+)

@@ -8,14 +8,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "agent"))
 from agent import agent
 from dataset import dataset
 from model import eval_model
-from deepeval.metrics import StepEfficiencyMetric
+from deepeval.metrics import PlanQualityMetric
 from deepeval.integrations.langchain import CallbackHandler
 from deepeval.evaluate.configs import AsyncConfig
 
 
 
 metrics = [
-    StepEfficiencyMetric(
+    PlanQualityMetric(
         threshold=0.8,
         model=eval_model,
         include_reason=True,

@@ -1,163 +1,108 @@
-import sys
-import time
-from pathlib import Path
-from uuid import uuid4
+"""Run the refund agent over the dataset and score it.
 
-from dotenv import load_dotenv
-
-load_dotenv()
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "agent"))
-
-from groq import RateLimitError
-from agent import agent
-from dataset import dataset
-from model import eval_model
-from deepeval import evaluate
-from deepeval.evaluate.configs import (
-    AsyncConfig,
-    CacheConfig,
-    DisplayConfig,
-    ErrorConfig,
-)
-from deepeval.integrations.langchain import CallbackHandler
-from deepeval.metrics import (
-    ArgumentCorrectnessMetric,
-    GEval,
-    PlanAdherenceMetric,
-    PlanQualityMetric,
-    StepEfficiencyMetric,
-    TaskCompletionMetric,
-    ToolCorrectnessMetric,
-)
-from deepeval.test_case import LLMTestCase, SingleTurnParams, ToolCall
-
-
-SUCCESSFUL_TASK_DESCRIPTION = """
-If the username is missing, ask the user to provide it.
-For a refund request, identify the customer and the requested purchases, and
-check that each purchase is no more than 30 days old and is not in the future.
-Refund only the items requested by the user. If the customer or requested items
-cannot be found, do not issue a refund ticket and explain why.
-Once the necessary information is available, tell the user whether a refund
-ticket was issued and its amount, or explain why no refund was issued.
-For an information-only request, answer the question without issuing a ticket.
+Runs all 7 metrics by default; pass --metrics to run a subset, e.g.
+    python evaluations/eval_all.py --metrics tool_correctness answer_correctness
 """
 
+import argparse
+import time
 
-def build_metrics():
-    """Trace-based metrics (need the callback trace) and single-turn metrics."""
-    trace_metrics = [
-        TaskCompletionMetric(
-            threshold=0.8,
-            model=eval_model,
-            task=SUCCESSFUL_TASK_DESCRIPTION,
-            include_reason=True,
-        ),
-        StepEfficiencyMetric(threshold=0.8, model=eval_model, include_reason=True),
-        PlanQualityMetric(threshold=0.8, model=eval_model, include_reason=True),
-        PlanAdherenceMetric(threshold=0.8, model=eval_model, include_reason=True),
-    ]
+import common  # noqa: F401  (must come first: loads .env and the judge retry policy)
+from common import GOLDEN_COOLDOWN_SECONDS, extract_tool_calls, get_answer, run_agent
+from dataset import dataset
+from deepeval import evaluate
+from deepeval.evaluate.configs import AsyncConfig, CacheConfig, DisplayConfig, ErrorConfig
+from deepeval.test_case import LLMTestCase
+from metrics import ALL_METRICS, SINGLE_TURN_METRICS, TRACE_METRICS
 
+
+def parse_args(argv=None) -> list[str]:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument(
+        "--metrics",
+        nargs="+",
+        choices=ALL_METRICS,
+        default=ALL_METRICS,
+        metavar="METRIC",
+        help=f"metrics to run (default: all). Choices: {', '.join(ALL_METRICS)}",
+    )
+    return parser.parse_args(argv).metrics
+
+
+def main(argv=None):
+    selected = parse_args(argv)
+    trace_metrics = [TRACE_METRICS[name]() for name in selected if name in TRACE_METRICS]
     single_turn_metrics = [
-        ArgumentCorrectnessMetric(threshold=0.9, model=eval_model, include_reason=True),
-        ToolCorrectnessMetric(threshold=0.9, model=eval_model, include_reason=True),
-        GEval(
-            name="Answer Correctness",
-            evaluation_params=[
-                SingleTurnParams.INPUT,
-                SingleTurnParams.ACTUAL_OUTPUT,
-                SingleTurnParams.EXPECTED_OUTPUT,
-            ],
-            evaluation_steps=[
-                "Check that the actual output and expected output have the same "
-                "logical conclusion about the user's request.",
-            ],
-            threshold=0.8,
-            model=eval_model,
-            verbose_mode=True,
-        ),
+        SINGLE_TURN_METRICS[name]() for name in selected if name in SINGLE_TURN_METRICS
     ]
-    return trace_metrics, single_turn_metrics
 
-
-def run_agent(user_input: str, tries: int = 4):
-    for attempt in range(tries):
-        try:
-            return agent.invoke(
-                {"messages": [{"role": "user", "content": user_input}]},
-                config={
-                    "configurable": {"thread_id": str(uuid4())},  # fresh thread per attempt
-                    "callbacks": [CallbackHandler()],
-                },
-            )
-        except RateLimitError as e:
-            wait = 30 * (attempt + 1)  # 30s, 60s, 90s, 120s
-            print(f"Rate limited (attempt {attempt + 1}/{tries}), waiting {wait}s: {str(e)[:150]}")
-            time.sleep(wait)
-        except Exception as e:
-            print(f"Attempt {attempt + 1}/{tries} failed: {type(e).__name__}")
-            time.sleep(2)
-    print(f"Giving up after {tries} attempts: {user_input}")
-    return None
-
-
-def main():
-    trace_metrics, single_turn_metrics = build_metrics()
     cache_config = CacheConfig(use_cache=False, write_cache=False)
     display_config = DisplayConfig(inspect_after_run=False)
     async_config = AsyncConfig(run_async=False)  # one golden at a time
     error_config = ErrorConfig(skip_on_missing_params=True)
 
-    test_cases = []  # local list, so repeated runs don't pile up in dataset.test_cases
+    # Trace metrics need the callback trace, which evals_iterator collects per golden.
+    # Without them, just loop over the goldens and skip the tracing overhead.
+    if trace_metrics:
+        goldens = dataset.evals_iterator(
+            metrics=trace_metrics,
+            async_config=async_config,
+            error_config=error_config,
+            cache_config=cache_config,
+            display_config=display_config,
+        )
+    else:
+        goldens = iter(dataset.goldens)
 
-    # The callback captures the trace needed by the four trace-based metrics.
-    for golden in dataset.evals_iterator(
-        metrics=trace_metrics,
-        async_config=async_config,
-        error_config=error_config,
-        cache_config=cache_config,
-        display_config=display_config,
-    ):
-        response = run_agent(golden.input)
-        time.sleep(20)  # let Groq's per-minute limit recover before the next golden
+    total = len(dataset.goldens)
+    test_cases = []  # local list, so repeated runs don't pile up in dataset.test_cases
+    skipped = []
+
+    for index, golden in enumerate(goldens, start=1):
+        response = run_agent(golden.input, trace=bool(trace_metrics))
+        if index < total:
+            time.sleep(GOLDEN_COOLDOWN_SECONDS)
 
         if response is None:
             print(f"SKIPPED (agent never finished): {golden.input}")
+            skipped.append(golden.input)
             continue
 
-        tools_called = []
-        for message in response["messages"]:
-            for tool_call in getattr(message, "tool_calls", []) or []:
-                if tool_call["name"] == "final_answer":
-                    continue  # structured-output tool, not a business tool
-                tools_called.append(
-                    ToolCall(
-                        name=tool_call["name"],
-                        input_parameters=tool_call["args"],
-                    )
-                )
+        answer = get_answer(response)
+        if answer is None:
+            print(f"SKIPPED (no structured response): {golden.input}")
+            skipped.append(golden.input)
+            continue
 
-        # Reuse the same agent response for the three single-turn metrics.
+        # Reuse the same agent run for every single-turn metric.
         test_cases.append(
             LLMTestCase(
                 input=golden.input,
-                actual_output=response["structured_response"].answer,
+                actual_output=answer,
                 expected_output=golden.expected_output,
-                tools_called=tools_called,
+                tools_called=extract_tool_calls(response),
                 expected_tools=golden.expected_tools,
             )
         )
 
-    evaluate(
-        test_cases=test_cases,
-        metrics=single_turn_metrics,
-        async_config=async_config,
-        cache_config=cache_config,
-        display_config=display_config,
-    )
+    if single_turn_metrics:
+        if test_cases:
+            evaluate(
+                test_cases=test_cases,
+                metrics=single_turn_metrics,
+                async_config=async_config,
+                cache_config=cache_config,
+                display_config=display_config,
+            )
+        else:
+            print("No test cases to score: the agent did not finish on any golden.")
 
-    print(f"\nCompleted all 7 metrics for {len(test_cases)} test cases")
+    print(
+        f"\nRan {len(selected)} metric(s) ({', '.join(selected)}) on "
+        f"{total - len(skipped)}/{total} goldens."
+    )
+    for user_input in skipped:
+        print(f"  skipped: {user_input}")
 
 
 if __name__ == "__main__":

@@ -50,7 +50,7 @@ dataset = EvaluationDataset(
                 ToolCall(name="check_current_date"),
             ],
         ),
-        # 6. Mixed: one eligible, one not (fixed: user126)
+        # 6. Mixed: one eligible, one not
         Golden(
             input="I am user126, I would like a refund for the water_bottle and the backpack.",
             expected_output="A refund ticket for $45 has been issued only for the backpack. The water_bottle is not eligible because it was purchased more than 30 days ago.",
@@ -69,11 +69,31 @@ dataset = EvaluationDataset(
                 ToolCall(name="get_user_purchase_history"),
             ],
         ),
-        # 8. Missing username (new)
+        # 8. Missing username
         Golden(
             input="I would like a refund for the book.",
             expected_output="The agent asks the customer for their username before doing anything else.",
             expected_tools=[],
+        ),
+        # 9. Purchase dated in the future
+        Golden(
+            input="I am user133, I would like a refund for the tablet.",
+            expected_output="No refund can be issued because the tablet's purchase date is in the future, so the purchase is invalid.",
+            expected_tools=[
+                ToolCall(name="get_user_purchase_history"),
+                ToolCall(name="check_current_date"),
+            ],
+        ),
+        # 10. 30-day boundary: planner is exactly 30 days old (eligible), marker is 31 (not)
+        Golden(
+            input="I am user133, I would like a refund for the planner and the marker.",
+            expected_output="A refund ticket for $15 has been issued only for the planner. The marker is not eligible because it was purchased more than 30 days ago.",
+            expected_tools=[
+                ToolCall(name="get_user_purchase_history"),
+                ToolCall(name="check_current_date"),
+                ToolCall(name="calculate_right_refund"),
+                ToolCall(name="issue_refund_ticket"),
+            ],
         ),
     ]
 )

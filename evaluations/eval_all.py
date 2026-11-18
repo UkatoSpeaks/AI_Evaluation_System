@@ -39,7 +39,9 @@ def main(argv=None):
     cache_config = CacheConfig(use_cache=False, write_cache=False)
     display_config = DisplayConfig(inspect_after_run=False)
     async_config = AsyncConfig(run_async=False)  # one golden at a time
-    error_config = ErrorConfig(skip_on_missing_params=True)
+    # ignore_errors: a judge failure (e.g. Gemini 503) marks that one metric as
+    # errored instead of aborting the whole run and losing every score so far.
+    error_config = ErrorConfig(ignore_errors=True, skip_on_missing_params=True)
 
     # Trace metrics need the callback trace, which evals_iterator collects per golden.
     # Without them, just loop over the goldens and skip the tracing overhead.
@@ -70,7 +72,7 @@ def main(argv=None):
 
         answer = get_answer(response)
         if answer is None:
-            print(f"SKIPPED (no structured response): {golden.input}")
+            print(f"SKIPPED (no reply to the customer): {golden.input}")
             skipped.append(golden.input)
             continue
 
@@ -91,6 +93,7 @@ def main(argv=None):
                 test_cases=test_cases,
                 metrics=single_turn_metrics,
                 async_config=async_config,
+                error_config=error_config,
                 cache_config=cache_config,
                 display_config=display_config,
             )

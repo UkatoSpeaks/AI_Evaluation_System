@@ -5,12 +5,10 @@ load_dotenv()  # load .env before anything that needs GROQ_API_KEY
 from uuid import uuid4
 
 from langchain.agents import create_agent
-from langchain.agents.structured_output import ToolStrategy
 from langchain.messages import HumanMessage
 from langgraph.checkpoint.memory import InMemorySaver
 
 from models import model
-from objects import final_answer
 from prompts import agent_system_prompt
 from tools import (
     calculate_right_refund,
@@ -19,31 +17,35 @@ from tools import (
     issue_refund_ticket,
 )
 
+# The agent finishes its turn with a plain-text reply. A structured-output
+# tool (ToolStrategy) was dropped: the Groq models tried kept failing to call
+# it, and Groq does not allow JSON-schema output together with tool calling.
 agent = create_agent(
     model=model,
     system_prompt=agent_system_prompt,
     tools=[get_user_purchase_history, check_current_date, calculate_right_refund, issue_refund_ticket],
-    response_format=ToolStrategy(final_answer),
     checkpointer=InMemorySaver(),
 )
 
 
+def final_reply(response: dict) -> str | None:
+    """The agent's reply to the customer, or None if its turn ended without one."""
+    last = response["messages"][-1]
+    if last.type == "ai" and not last.tool_calls and last.text:
+        return last.text
+    return None
+
+
 def run_conversation():
     config = {"configurable": {"thread_id": str(uuid4())}}
+    print("Chat with the refund agent. Press Enter on an empty line (or type 'exit') to quit.\n")
 
-    question = HumanMessage(content="I would like to request a refund")
-    conversation = True
-
-    while conversation:
-        response = agent.invoke({"messages": [question]}, config=config)
-        structured_response = response["structured_response"]
-
-        print(structured_response.answer)
-        conversation = structured_response.conversation
-
-        if conversation:
-            user_input = input("reply:\n")
-            question = HumanMessage(content=user_input)
+    while True:
+        user_input = input("you: ").strip()
+        if user_input.lower() in ("", "exit", "quit"):
+            break
+        response = agent.invoke({"messages": [HumanMessage(content=user_input)]}, config=config)
+        print(f"agent: {final_reply(response) or '(no reply, please try again)'}\n")
 
     print("The job is done!")
 

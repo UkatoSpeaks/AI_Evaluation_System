@@ -11,7 +11,7 @@ agent/
   tools.py        purchase lookup, date, refund calculation (enforces policy), ticket
   data.py         mock customers and purchases (today is fixed to 2026-10-28)
   prompts.py      system prompt with the refund policy
-  objects.py      structured output schema (final_answer) and tool input types
+  objects.py      tool input types (PurchaseItem)
   models.py       agent LLM (Groq)
   list_models.py  print the models your Groq key can use
 evaluations/

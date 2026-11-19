@@ -20,10 +20,12 @@ from tools import (
 # The agent finishes its turn with a plain-text reply. A structured-output
 # tool (ToolStrategy) was dropped: the Groq models tried kept failing to call
 # it, and Groq does not allow JSON-schema output together with tool calling.
+agent_tools = [get_user_purchase_history, check_current_date, calculate_right_refund, issue_refund_ticket]
+
 agent = create_agent(
     model=model,
     system_prompt=agent_system_prompt,
-    tools=[get_user_purchase_history, check_current_date, calculate_right_refund, issue_refund_ticket],
+    tools=agent_tools,
     checkpointer=InMemorySaver(),
 )
 

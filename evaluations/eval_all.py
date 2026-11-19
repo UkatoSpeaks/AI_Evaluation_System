@@ -32,9 +32,12 @@ def parse_args(argv=None) -> list[str]:
 def main(argv=None):
     selected = parse_args(argv)
     trace_metrics = [TRACE_METRICS[name]() for name in selected if name in TRACE_METRICS]
-    single_turn_metrics = [
-        SINGLE_TURN_METRICS[name]() for name in selected if name in SINGLE_TURN_METRICS
-    ]
+    single_turn_metrics = {
+        name: SINGLE_TURN_METRICS[name]() for name in selected if name in SINGLE_TURN_METRICS
+    }
+    # Argument Correctness is scored on test cases without zero-argument tool
+    # calls (see extract_tool_calls), so it runs as its own evaluate() pass.
+    argument_metric = single_turn_metrics.pop("argument_correctness", None)
 
     cache_config = CacheConfig(use_cache=False, write_cache=False)
     display_config = DisplayConfig(inspect_after_run=False)
@@ -57,7 +60,8 @@ def main(argv=None):
         goldens = iter(dataset.goldens)
 
     total = len(dataset.goldens)
-    test_cases = []  # local list, so repeated runs don't pile up in dataset.test_cases
+    test_cases = []  # local lists, so repeated runs don't pile up in dataset.test_cases
+    argument_test_cases = []
     skipped = []
 
     for index, golden in enumerate(goldens, start=1):
@@ -86,19 +90,32 @@ def main(argv=None):
                 expected_tools=golden.expected_tools,
             )
         )
-
-    if single_turn_metrics:
-        if test_cases:
-            evaluate(
-                test_cases=test_cases,
-                metrics=single_turn_metrics,
-                async_config=async_config,
-                error_config=error_config,
-                cache_config=cache_config,
-                display_config=display_config,
+        argument_test_cases.append(
+            LLMTestCase(
+                input=golden.input,
+                actual_output=answer,
+                tools_called=extract_tool_calls(response, with_arguments_only=True),
             )
-        else:
+        )
+
+    passes = [
+        (list(single_turn_metrics.values()), test_cases),
+        ([argument_metric] if argument_metric else [], argument_test_cases),
+    ]
+    for metrics, cases in passes:
+        if not metrics:
+            continue
+        if not cases:
             print("No test cases to score: the agent did not finish on any golden.")
+            break
+        evaluate(
+            test_cases=cases,
+            metrics=metrics,
+            async_config=async_config,
+            error_config=error_config,
+            cache_config=cache_config,
+            display_config=display_config,
+        )
 
     print(
         f"\nRan {len(selected)} metric(s) ({', '.join(selected)}) on "

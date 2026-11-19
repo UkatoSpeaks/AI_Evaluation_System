@@ -1,7 +1,7 @@
 """Shared setup and helpers for the evaluation scripts.
 
 Import this module before anything from deepeval: it loads .env and sets the
-judge's retry policy, which deepeval reads from the environment.
+judge's timeouts, which deepeval reads from the environment.
 """
 
 import logging
@@ -15,16 +15,14 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# Retry the Gemini judge on 429s with a real backoff. deepeval's defaults
-# (2 attempts, 5s cap) are too short for free-tier per-minute limits.
-os.environ.setdefault("DEEPEVAL_RETRY_MAX_ATTEMPTS", "6")
-os.environ.setdefault("DEEPEVAL_RETRY_INITIAL_SECONDS", "5")
-os.environ.setdefault("DEEPEVAL_RETRY_CAP_SECONDS", "60")
-# Give each judge call a fixed timeout. Without this, deepeval splits a fixed
-# 180s budget across all attempts after subtracting the backoff, which leaves
-# only ~6.5s per call with the settings above: too short for trace metrics.
-# With an explicit per-attempt timeout, the overall budget is sized from it.
+# Judge retries and rate limiting live in model.py (PacedGeminiModel): deepeval's
+# own Gemini retry policy never activates in 4.3.4, so turn it off explicitly.
+os.environ.setdefault("DEEPEVAL_RETRY_MAX_ATTEMPTS", "1")
+# Each judge call gets 60s. The per-metric budget must also cover the pacing
+# and retry waits done in PacedGeminiModel (up to ~1 minute per 429), so it is
+# set generously instead of letting deepeval derive a tight one.
 os.environ.setdefault("DEEPEVAL_PER_ATTEMPT_TIMEOUT_SECONDS_OVERRIDE", "60")
+os.environ.setdefault("DEEPEVAL_PER_TASK_TIMEOUT_SECONDS_OVERRIDE", "900")
 
 # The agent code lives in ../agent and uses flat imports (from tools import ...).
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "agent"))
@@ -37,7 +35,7 @@ from deepeval.test_case import ToolCall  # noqa: E402
 from deepeval.tracing.context import current_trace_context  # noqa: E402
 from deepeval.tracing.types import TraceSpanStatus  # noqa: E402
 
-from agent import agent, final_reply  # noqa: E402
+from agent import agent, agent_tools, final_reply  # noqa: E402
 
 GOLDEN_COOLDOWN_SECONDS = 20  # lets Groq's per-minute limit recover between goldens
 
@@ -93,12 +91,27 @@ def get_answer(response: dict) -> str | None:
     return final_reply(response)
 
 
-def extract_tool_calls(response: dict) -> list[ToolCall]:
-    """All tool calls the agent made, in order."""
+TOOL_DESCRIPTIONS = {t.name: t.description.strip() for t in agent_tools}
+
+
+def extract_tool_calls(response: dict, *, with_arguments_only: bool = False) -> list[ToolCall]:
+    """All tool calls the agent made, in order.
+
+    with_arguments_only drops calls to tools that take no arguments (e.g.
+    check_current_date). ArgumentCorrectnessMetric's prompt tells the judge to
+    fail any call with no input parameters, so those calls would always count
+    as wrong even though there is nothing to get wrong.
+    """
     tools_called = []
     for message in response["messages"]:
         for tool_call in getattr(message, "tool_calls", None) or []:
+            if with_arguments_only and not tool_call["args"]:
+                continue
             tools_called.append(
-                ToolCall(name=tool_call["name"], input_parameters=tool_call["args"])
+                ToolCall(
+                    name=tool_call["name"],
+                    description=TOOL_DESCRIPTIONS.get(tool_call["name"]),
+                    input_parameters=tool_call["args"],
+                )
             )
     return tools_called

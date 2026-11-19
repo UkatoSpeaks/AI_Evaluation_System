@@ -3,3 +3,5 @@
 __pycache__/
 *.pyc
 .deepeval/
+evaluations/results/runs/
+.streamlit/secrets.toml

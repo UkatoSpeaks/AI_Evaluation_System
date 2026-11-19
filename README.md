@@ -19,7 +19,9 @@ evaluations/
   metrics.py      every metric's configuration (thresholds, task description)
   common.py       shared helpers: env setup, run_agent with retries, tool-call extraction
   dataset.py      the goldens
-  model.py        judge LLM (Gemini)
+  model.py        judge LLM (Gemini), paced under the free-tier limit with its own retries
+  results.py      saves each run and compares it with the previous one
+  results/        history.jsonl (one line per run, tracked) and runs/ (full detail, ignored)
   <metric>.py     shortcuts that run a single metric
 ```
 
@@ -50,5 +52,21 @@ Metrics: `task_completion`, `step_efficiency`, `plan_quality`, `plan_adherence`
 (trace-based), and `argument_correctness`, `tool_correctness`, `answer_correctness`
 (single-turn).
 
-A full run takes a while: there is a 20s pause between goldens for Groq's
-rate limit, and the Gemini judge retries 429s with backoff.
+A full run takes 30-45 minutes: there is a 20s pause between goldens for
+Groq's rate limit, and the Gemini judge is paced to 14 requests/minute
+(override with `JUDGE_REQUESTS_PER_MINUTE` on a paid tier).
+
+## Reading the results
+
+Each run ends with a summary table comparing every metric with the previous
+run, and lists what changed in between (agent model, prompt hash, git commit).
+Change one thing at a time so a score change can be traced to its cause.
+
+- `errored` counts judge failures (rate limits, outages); they are excluded
+  from the average and pass rate, so check it before trusting a number.
+- deepeval's own "Pass Rate" line counts skipped goldens as passes; use the
+  summary table instead.
+- With 10 goldens, one golden moves a pass rate by 10 points, and LLM output
+  varies between runs: treat small deltas as noise and re-run before acting.
+- Full per-golden detail (answer, tools called, every metric's score and
+  reason) is in `evaluations/results/runs/<timestamp>.json`.

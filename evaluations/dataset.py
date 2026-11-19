@@ -48,6 +48,7 @@ dataset = EvaluationDataset(
             expected_tools=[
                 ToolCall(name="get_user_purchase_history"),
                 ToolCall(name="check_current_date"),
+                ToolCall(name="calculate_right_refund"),  # it decides eligibility
             ],
         ),
         # 6. Mixed: one eligible, one not
@@ -82,6 +83,7 @@ dataset = EvaluationDataset(
             expected_tools=[
                 ToolCall(name="get_user_purchase_history"),
                 ToolCall(name="check_current_date"),
+                ToolCall(name="calculate_right_refund"),  # it decides eligibility
             ],
         ),
         # 10. 30-day boundary: planner is exactly 30 days old (eligible), marker is 31 (not)

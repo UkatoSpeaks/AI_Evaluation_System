@@ -1,0 +1,17 @@
+[theme]
+base = "dark"
+primaryColor = "#2dd4bf"             # teal accent
+backgroundColor = "#0b1117"
+secondaryBackgroundColor = "#131c26"
+textColor = "#e6edf3"
+borderColor = "#1f2b38"
+font = "sans-serif"
+codeFont = "monospace"              # tool calls in the trace panel
+codeBackgroundColor = "#0f1720"
+baseRadius = "0.6rem"
+
+[client]
+toolbarMode = "minimal"
+
+[server]
+headless = true
